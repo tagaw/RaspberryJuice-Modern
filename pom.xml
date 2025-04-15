@@ -2,14 +2,16 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>net.zhuoweizhang</groupId>
     <artifactId>raspberryjuice</artifactId>
-    <version>1.12.1</version>
+    <version>1.21.5</version>
     <name>RaspberryJuice</name>
+
     <repositories>
         <repository>
             <id>spigot-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
         </repository>
     </repositories>
+
     <build>
         <!--Exclude files that aren't actually resources-->
         <resources>
@@ -34,31 +36,16 @@
         </plugins>
     </build>
     <dependencies>
+
         <dependency>
-            <groupId>org.bukkit</groupId>
-            <artifactId>bukkit</artifactId>
-            <version>1.12.2-R0.1-SNAPSHOT</version>
+            <groupId>org.spigotmc</groupId>
+            <artifactId>spigot-api</artifactId>
+            <version>1.21.5-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
 
-        <!--Test Dependencies-->
-        <dependency>
-            <groupId>info.cukes</groupId>
-            <artifactId>cucumber-testng</artifactId>
-            <version>1.2.5</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>info.cukes</groupId>
-            <artifactId>cucumber-java</artifactId>
-            <version>1.2.5</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.jmockit</groupId>
-            <artifactId>jmockit</artifactId>
-            <version>1.23</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 </project>
+
+
+
