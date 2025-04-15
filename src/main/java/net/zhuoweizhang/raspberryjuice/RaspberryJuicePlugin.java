@@ -1,11 +1,7 @@
 package net.zhuoweizhang.raspberryjuice;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -27,10 +23,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	public static final Set<Material> blockBreakDetectionTools = EnumSet.of(
 			Material.DIAMOND_SWORD,
-			Material.GOLD_SWORD, 
+			Material.GOLDEN_SWORD,
 			Material.IRON_SWORD, 
 			Material.STONE_SWORD, 
-			Material.WOOD_SWORD);
+			Material.WOODEN_SWORD);
 
 	public ServerListenerThread serverThread;
 
@@ -58,7 +54,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		getLogger().info("Using host:port - " + hostname + ":" + Integer.toString(port));
 		
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
-		String location = this.getConfig().getString("location").toUpperCase();
+		String location = Objects.requireNonNull(this.getConfig().getString("location")).toUpperCase();
 		try {
 			locationType = LocationType.valueOf(location);
 		} catch(IllegalArgumentException e) {
@@ -68,7 +64,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		getLogger().info("Using " + locationType.name() + " locations");
 
 		//get hit click type (LEFT, RIGHT or BOTH) from config.yml
-		String hitClick = this.getConfig().getString("hitclick").toUpperCase();
+		String hitClick = Objects.requireNonNull(this.getConfig().getString("hitclick")).toUpperCase();
 		try {
 			hitClickType = HitClickType.valueOf(hitClick);
 		} catch(IllegalArgumentException e) {
