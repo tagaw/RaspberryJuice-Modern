@@ -54,9 +54,14 @@ tmp/
 # Python
 *.pyc
 
+
 # Editor detritus
 *.vim
 *.swp
 tags
 .vscode
 /.pydevproject
+
+
+# debugging files
+.server
