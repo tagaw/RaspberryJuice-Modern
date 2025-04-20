@@ -2,7 +2,9 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/src/main/resources/pylib/mcpi/mcpi.iml" filepath="$PROJECT_DIR$/src/main/resources/pylib/mcpi/mcpi.iml" />
       <module fileurl="file://$PROJECT_DIR$/raspberryjuice.iml" filepath="$PROJECT_DIR$/raspberryjuice.iml" />
+      <module fileurl="file://$PROJECT_DIR$/src/main/resources/test/test.iml" filepath="$PROJECT_DIR$/src/main/resources/test/test.iml" />
     </modules>
   </component>
 </project>
