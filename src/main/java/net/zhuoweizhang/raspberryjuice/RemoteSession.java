@@ -7,16 +7,15 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.Socket;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Server;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -155,11 +154,11 @@ public class RemoteSession {
 	}
 
 	protected void handleLine(String line) {
-		//System.out.println(line);
+//		System.out.println(line);
 		String methodName = line.substring(0, line.indexOf("("));
 		//split string into args, handles , inside " i.e. ","
-		String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split(",");
-		//System.out.println(methodName + ":" + Arrays.toString(args));
+		String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split("~");
+//		System.out.println(methodName + ":" + Arrays.toString(args));
 		handleCommand(methodName, args);
 	}
 
@@ -171,461 +170,490 @@ public class RemoteSession {
 			
 			// get the world
 			World world = origin.getWorld();
-			
-			// world.getBlock
+			if (world == null) {
+				throw new Exception("bad world.");
+			}
+
+			// world.getBlock --> 1.21.5
 			if (c.equals("world.getBlock")) {
+				// retrieves the block at location and returns Material
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				send(world.getBlockAt(loc).getType());
+				send(world.getBlockAt(loc).getType().name());
 				
-			// world.getBlocks
+			// world.getBlocks --> 1.21.5
 			} else if (c.equals("world.getBlocks")) {
+				// retrieves blocks between locations and returns Materials
 				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
 				send(getBlocks(loc1, loc2));
 				
 			// world.getBlockWithData
 			} else if (c.equals("world.getBlockWithData")) {
+				// retrieves the block at location and returns Material + BlockData
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				send(world.getBlockTypeIdAt(loc) + "," + world.getBlockAt(loc).getData());
-				
+				Block retrievedBlock = world.getBlockAt(loc);
+				send( retrievedBlock.getType() + "~" + retrievedBlock.getBlockData().getAsString());
+
 			// world.setBlock
+			// py setBlock(x,y,z,block,data)
 			} else if (c.equals("world.setBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				updateBlock(world, loc, Integer.parseInt(args[3]), (args.length > 4? Byte.parseByte(args[4]) : (byte) 0));
-				
-			// world.setBlocks
-			} else if (c.equals("world.setBlocks")) {
-				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
-				int blockType = Integer.parseInt(args[6]);
-				byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
-				setCuboid(loc1, loc2, blockType, data);
-				
-			// world.getPlayerIds
-			} else if (c.equals("world.getPlayerIds")) {
-				StringBuilder bdr = new StringBuilder();
-				Collection<? extends Player> players = Bukkit.getOnlinePlayers();
-				if (players.size() > 0) {
-					for (Player p: players) {
-						bdr.append(p.getEntityId());
-						bdr.append("|");
-					}
-					bdr.deleteCharAt(bdr.length()-1);
-					send(bdr.toString());
-				} else {
-					send("Fail");
+				Material blockType = Material.matchMaterial(args[3]);
+				if (blockType == null) {
+					plugin.getLogger().warning("Unknown block type: " + args[3]);
+					blockType = Material.STONE;
 				}
-				
-			// world.getPlayerId
-			} else if (c.equals("world.getPlayerId")) {
-				Player p = plugin.getNamedPlayer(args[0]);
-				if (p != null) {
-					send(p.getEntityId());
-				} else {
-					plugin.getLogger().info("Player [" + args[0] + "] not found.");
-					send("Fail");
-				}
-				
-			// entity.getListName
-			} else if (c.equals("entity.getName")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
-				if (e == null) {
-					plugin.getLogger().info("Player (or Entity) [" + args[0] + "] not found in entity.getName.");
-				} else if (e instanceof Player) {
-					Player p = (Player) e;
-					//sending list name because plugin.getNamedPlayer() uses list name
-					send(p.getPlayerListName());
-				} else if (e != null) {
-					send(e.getName());
-				}
-				
-			// world.getEntities
-			} else if (c.equals("world.getEntities")) {
-				int entityType = Integer.parseInt(args[0]);
-				send(getEntities(world, entityType));
-				
-			// world.removeEntity
-			} else if (c.equals("world.removeEntity")) {
-				int result = 0;
-				for (Entity e : world.getEntities()) {
-					if (e.getEntityId() == Integer.parseInt(args[0]))
-					{
-						e.remove();
-						result = 1;
-						break;
+				BlockData blockData;
+				if (args.length > 4) {
+					// Try to create block data from data string.
+					// Fails and defaults to unknown defaults if invalid data for given block
+					try {
+						blockData = Bukkit.createBlockData(blockType,args[4]);
+
+					} catch (IllegalArgumentException e) {
+						plugin.getLogger().warning("Data tag incompatible with target block: " + blockType.name() + " with data tag " + args[4]);
+
+						blockData = Bukkit.createBlockData(blockType);
 					}
 				}
-				send(result);
-				
-			// world.removeEntities
-			} else if (c.equals("world.removeEntities")) {
-				int entityType = Integer.parseInt(args[0]);
-				int removedEntitiesCount = 0;
-				for (Entity e : world.getEntities()) {
-					if (entityType == -1 || e.getType().getTypeId() == entityType)
-					{
-						e.remove();
-						removedEntitiesCount++;
-					}
+				else {
+					blockData = Bukkit.createBlockData(blockType);
 				}
-				send(removedEntitiesCount);
-				
-			// chat.post
-			} else if (c.equals("chat.post")) {
-				//create chat message from args as it was split by ,
-				String chatMessage = "";
-				int count;
-				for(count=0;count<args.length;count++){
-					chatMessage = chatMessage + args[count] + ",";
-				}
-				chatMessage = chatMessage.substring(0, chatMessage.length() - 1);
-				server.broadcastMessage(chatMessage);
-
-			// events.clear
-			} else if (c.equals("events.clear")) {
-				interactEventQueue.clear();
-				chatPostedQueue.clear();
-				
-			// events.block.hits
-			} else if (c.equals("events.block.hits")) {
-				send(getBlockHits());
-				
-			// events.chat.posts
-			} else if (c.equals("events.chat.posts")) {
-				send(getChatPosts());
-				
-			// events.projectile.hits
-			} else if(c.equals("events.projectile.hits")) {
-				send(getProjectileHits());
-				
-			// entity.events.clear
-			} else if (c.equals("entity.events.clear")) {
-				int entityId = Integer.parseInt(args[0]);
-				clearEntityEvents(entityId);
-				
-			// entity.events.block.hits
-			} else if (c.equals("entity.events.block.hits")) {
-				int entityId = Integer.parseInt(args[0]);
-				send(getBlockHits(entityId));
-				
-			// entity.events.chat.posts
-			} else if (c.equals("entity.events.chat.posts")) {
-				int entityId = Integer.parseInt(args[0]);
-				send(getChatPosts(entityId));
-				
-			// entity.events.projectile.hits
-			} else if(c.equals("entity.events.projectile.hits")) {
-				int entityId = Integer.parseInt(args[0]);
-				send(getProjectileHits(entityId));
-			
-			// player.getTile
-			}else if (c.equals("player.getTile")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(blockLocationToRelative(currentPlayer.getLocation()));
-				
-			// player.setTile
-			} else if (c.equals("player.setTile")) {
-				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
-				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
-				Location loc = currentPlayer.getLocation();
-				currentPlayer.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
-				
-			// player.getAbsPos
-			} else if (c.equals("player.getAbsPos")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(currentPlayer.getLocation());
-				
-			// player.setAbsPos
-			} else if (c.equals("player.setAbsPos")) {
-				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
-				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
-				Location loc = currentPlayer.getLocation();
-				loc.setX(Double.parseDouble(x));
-				loc.setY(Double.parseDouble(y));
-				loc.setZ(Double.parseDouble(z));
-				currentPlayer.teleport(loc);
-
-			// player.getPos
-			} else if (c.equals("player.getPos")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(locationToRelative(currentPlayer.getLocation()));
-
-			// player.setPos
-			} else if (c.equals("player.setPos")) {
-				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
-				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
-				Location loc = currentPlayer.getLocation();
-				currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
-
-			// player.setDirection
-			} else if (c.equals("player.setDirection")) {
-				Double x = Double.parseDouble(args[0]);
-				Double y = Double.parseDouble(args[1]); 
-				Double z = Double.parseDouble(args[2]);
-				Player currentPlayer = getCurrentPlayer();
-				Location loc = currentPlayer.getLocation();
-				loc.setDirection(new Vector(x, y, z));
-				currentPlayer.teleport(loc);
-
-			// player.getDirection
-			} else if (c.equals("player.getDirection")) {
-			Player currentPlayer = getCurrentPlayer();
-			send(currentPlayer.getLocation().getDirection().toString());
-
-			// player.setRotation
-			} else if (c.equals("player.setRotation")) {
-				Float yaw = Float.parseFloat(args[0]);
-				Player currentPlayer = getCurrentPlayer();
-				Location loc = currentPlayer.getLocation();
-				loc.setYaw(yaw);
-				currentPlayer.teleport(loc);
-
-			// player.getRotation
-			} else if (c.equals("player.getRotation")) {
-				Player currentPlayer = getCurrentPlayer();
-				float yaw = currentPlayer.getLocation().getYaw();
-				// turn bukkit's 0 - -360 to positive numbers 
-				if (yaw < 0) yaw = yaw * -1;
-				send(yaw);
-
-			// player.setPitch
-			} else if (c.equals("player.setPitch")) {
-				Float pitch = Float.parseFloat(args[0]);
-				Player currentPlayer = getCurrentPlayer();
-				Location loc = currentPlayer.getLocation();
-				loc.setPitch(pitch);
-				currentPlayer.teleport(loc);
-				
-			// player.getPitch
-			} else if (c.equals("player.getPitch")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(currentPlayer.getLocation().getPitch());
-
-			// player.getEntities
-			} else if (c.equals("player.getEntities")) {
-				Player currentPlayer = getCurrentPlayer();
-				int distance = Integer.parseInt(args[0]);
-				int entityTypeId = Integer.parseInt(args[1]);
-
-				send(getEntities(world, currentPlayer.getEntityId(), distance, entityTypeId));
-
-			// player.removeEntities
-			} else if (c.equals("player.removeEntities")) {
-				Player currentPlayer = getCurrentPlayer();
-				int distance = Integer.parseInt(args[0]);
-				int entityType = Integer.parseInt(args[1]);
-
-				send(removeEntities(world, currentPlayer.getEntityId(), distance, entityType));
-
-			// player.events.block.hits
-			} else if (c.equals("player.events.block.hits")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(getBlockHits(currentPlayer.getEntityId()));
-				
-			// player.events.chat.posts
-			} else if (c.equals("player.events.chat.posts")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(getChatPosts(currentPlayer.getEntityId()));
-				
-			// player.events.projectile.hits
-			} else if(c.equals("player.events.projectile.hits")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(getProjectileHits(currentPlayer.getEntityId()));
-			
-			// player.events.clear
-			} else if (c.equals("player.events.clear")) {
-				Player currentPlayer = getCurrentPlayer();
-				clearEntityEvents(currentPlayer.getEntityId());
-				
-			// world.getHeight
-			} else if (c.equals("world.getHeight")) {
-				send(world.getHighestBlockYAt(parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
-				
-			// entity.getTile
-			} else if (c.equals("entity.getTile")) {
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(blockLocationToRelative(entity.getLocation()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-				
-			// entity.setTile
-			} else if (c.equals("entity.setTile")) {
-				String x = args[1], y = args[2], z = args[3];
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					//get entity's current location, so when they are moved we will use the same pitch and yaw (rotation)
-					Location loc = entity.getLocation();
-					entity.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-
-			// entity.getPos
-			} else if (c.equals("entity.getPos")) {
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				//Player entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(locationToRelative(entity.getLocation()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-			
-			// entity.setPos
-			} else if (c.equals("entity.setPos")) {
-				String x = args[1], y = args[2], z = args[3];
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					//get entity's current location, so when they are moved we will use the same pitch and yaw (rotation)
-					Location loc = entity.getLocation();
-					entity.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-
-			// entity.setDirection
-			} else if (c.equals("entity.setDirection")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					Double x = Double.parseDouble(args[1]);
-					Double y = Double.parseDouble(args[2]); 
-					Double z = Double.parseDouble(args[3]);
-					Location loc = entity.getLocation();
-					loc.setDirection(new Vector(x, y, z));
-					entity.teleport(loc);
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-				}
-				
-			// entity.getDirection
-			} else if (c.equals("entity.getDirection")) {
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(entity.getLocation().getDirection().toString());
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-
-			// entity.setRotation
-			} else if (c.equals("entity.setRotation")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					Float yaw = Float.parseFloat(args[1]);
-					Location loc = entity.getLocation();
-					loc.setYaw(yaw);
-					entity.teleport(loc);
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-				}
-
-			// entity.getRotation
-			} else if (c.equals("entity.getRotation")) {
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(entity.getLocation().getYaw());
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-			
-			// entity.setPitch
-			} else if (c.equals("entity.setPitch")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					Float pitch = Float.parseFloat(args[1]);
-					Location loc = entity.getLocation();
-					loc.setPitch(pitch);
-					entity.teleport(loc);
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-				}
-
-			// entity.getPitch
-			} else if (c.equals("entity.getPitch")) {
-				//get entity based on id
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(entity.getLocation().getPitch());
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
-				
-			// entity.getEntities
-			} else if (c.equals("entity.getEntities")) {
-				int entityId = Integer.parseInt(args[0]);
-				int distance = Integer.parseInt(args[1]);
-				int entityTypeId = Integer.parseInt(args[2]);
-
-				send(getEntities(world, entityId, distance, entityTypeId));
-					
-			// entity.removeEntities
-			} else if (c.equals("entity.removeEntities")) {
-				int entityId = Integer.parseInt(args[0]);
-				int distance = Integer.parseInt(args[1]);
-				int entityType = Integer.parseInt(args[2]);
-
-				send(removeEntities(world, entityId, distance, entityType));
-				
-			// world.setSign
-			} else if (c.equals("world.setSign")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Block thisBlock = world.getBlockAt(loc);
-				//blockType should be 68 for wall sign or 63 for standing sign
-				int blockType = Integer.parseInt(args[3]);	
-				//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
-				//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
-				byte blockData = Byte.parseByte(args[4]); 
-				if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-					thisBlock.setTypeIdAndData(blockType, blockData, true);
-				}
-				//plugin.getLogger().info("Creating sign at " + loc);
-				if ( thisBlock.getState() instanceof Sign ) {
-					Sign sign = (Sign) thisBlock.getState();
-					for ( int i = 5; i-5 < 4 && i < args.length; i++) {
-						sign.setLine(i-5, args[i]);
-					}
-					sign.update();
-				}
-			
-			// world.spawnEntity
-			} else if (c.equals("world.spawnEntity")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Entity entity = world.spawnEntity(loc, EntityType.fromId(Integer.parseInt(args[3])));
-				send(entity.getEntityId());
-
-			// world.getEntityTypes
-			} else if (c.equals("world.getEntityTypes")) {
-				StringBuilder bdr = new StringBuilder();				
-				for (EntityType entityType : EntityType.values()) {
-					if ( entityType.isSpawnable() && entityType.getTypeId() >= 0 ) {
-						bdr.append(entityType.getTypeId());
-						bdr.append(",");
-						bdr.append(entityType.toString());
-						bdr.append("|");
-					}
-				}
-				send(bdr.toString());
-
-			// not a command which is supported
-			} else {
-				plugin.getLogger().warning(c + " is not supported.");
-				send("Fail");
+				updateBlock(world, loc, blockType, blockData);
+//
+//			// world.setBlocks
+//			} else if (c.equals("world.setBlocks")) {
+//				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
+//				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
+//				int blockType = Integer.parseInt(args[6]);
+//				byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
+//				setCuboid(loc1, loc2, blockType, data);
+//
+//			// world.getPlayerIds
+//			} else if (c.equals("world.getPlayerIds")) {
+//				StringBuilder bdr = new StringBuilder();
+//				Collection<? extends Player> players = Bukkit.getOnlinePlayers();
+//				if (players.size() > 0) {
+//					for (Player p: players) {
+//						bdr.append(p.getEntityId());
+//						bdr.append("|");
+//					}
+//					bdr.deleteCharAt(bdr.length()-1);
+//					send(bdr.toString());
+//				} else {
+//					send("Fail");
+//				}
+//
+//			// world.getPlayerId
+//			} else if (c.equals("world.getPlayerId")) {
+//				Player p = plugin.getNamedPlayer(args[0]);
+//				if (p != null) {
+//					send(p.getEntityId());
+//				} else {
+//					plugin.getLogger().info("Player [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.getListName
+//			} else if (c.equals("entity.getName")) {
+//				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (e == null) {
+//					plugin.getLogger().info("Player (or Entity) [" + args[0] + "] not found in entity.getName.");
+//				} else if (e instanceof Player) {
+//					Player p = (Player) e;
+//					//sending list name because plugin.getNamedPlayer() uses list name
+//					send(p.getPlayerListName());
+//				} else if (e != null) {
+//					send(e.getName());
+//				}
+//
+//			// world.getEntities
+//			} else if (c.equals("world.getEntities")) {
+//				int entityType = Integer.parseInt(args[0]);
+//				send(getEntities(world, entityType));
+//
+//			// world.removeEntity
+//			} else if (c.equals("world.removeEntity")) {
+//				int result = 0;
+//				for (Entity e : world.getEntities()) {
+//					if (e.getEntityId() == Integer.parseInt(args[0]))
+//					{
+//						e.remove();
+//						result = 1;
+//						break;
+//					}
+//				}
+//				send(result);
+//
+//			// world.removeEntities
+//			} else if (c.equals("world.removeEntities")) {
+//				int entityType = Integer.parseInt(args[0]);
+//				int removedEntitiesCount = 0;
+//				for (Entity e : world.getEntities()) {
+//					if (entityType == -1 || e.getType().getTypeId() == entityType)
+//					{
+//						e.remove();
+//						removedEntitiesCount++;
+//					}
+//				}
+//				send(removedEntitiesCount);
+//
+//			// chat.post
+//			} else if (c.equals("chat.post")) {
+//				//create chat message from args as it was split by ,
+//				String chatMessage = "";
+//				int count;
+//				for(count=0;count<args.length;count++){
+//					chatMessage = chatMessage + args[count] + ",";
+//				}
+//				chatMessage = chatMessage.substring(0, chatMessage.length() - 1);
+//				server.broadcastMessage(chatMessage);
+//
+//			// events.clear
+//			} else if (c.equals("events.clear")) {
+//				interactEventQueue.clear();
+//				chatPostedQueue.clear();
+//
+//			// events.block.hits
+//			} else if (c.equals("events.block.hits")) {
+//				send(getBlockHits());
+//
+//			// events.chat.posts
+//			} else if (c.equals("events.chat.posts")) {
+//				send(getChatPosts());
+//
+//			// events.projectile.hits
+//			} else if(c.equals("events.projectile.hits")) {
+//				send(getProjectileHits());
+//
+//			// entity.events.clear
+//			} else if (c.equals("entity.events.clear")) {
+//				int entityId = Integer.parseInt(args[0]);
+//				clearEntityEvents(entityId);
+//
+//			// entity.events.block.hits
+//			} else if (c.equals("entity.events.block.hits")) {
+//				int entityId = Integer.parseInt(args[0]);
+//				send(getBlockHits(entityId));
+//
+//			// entity.events.chat.posts
+//			} else if (c.equals("entity.events.chat.posts")) {
+//				int entityId = Integer.parseInt(args[0]);
+//				send(getChatPosts(entityId));
+//
+//			// entity.events.projectile.hits
+//			} else if(c.equals("entity.events.projectile.hits")) {
+//				int entityId = Integer.parseInt(args[0]);
+//				send(getProjectileHits(entityId));
+//
+//			// player.getTile
+//			}else if (c.equals("player.getTile")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(blockLocationToRelative(currentPlayer.getLocation()));
+//
+//			// player.setTile
+//			} else if (c.equals("player.setTile")) {
+//				String x = args[0], y = args[1], z = args[2];
+//				Player currentPlayer = getCurrentPlayer();
+//				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
+//				Location loc = currentPlayer.getLocation();
+//				currentPlayer.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+//
+//			// player.getAbsPos
+//			} else if (c.equals("player.getAbsPos")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(currentPlayer.getLocation());
+//
+//			// player.setAbsPos
+//			} else if (c.equals("player.setAbsPos")) {
+//				String x = args[0], y = args[1], z = args[2];
+//				Player currentPlayer = getCurrentPlayer();
+//				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
+//				Location loc = currentPlayer.getLocation();
+//				loc.setX(Double.parseDouble(x));
+//				loc.setY(Double.parseDouble(y));
+//				loc.setZ(Double.parseDouble(z));
+//				currentPlayer.teleport(loc);
+//
+//			// player.getPos
+//			} else if (c.equals("player.getPos")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(locationToRelative(currentPlayer.getLocation()));
+//
+//			// player.setPos
+//			} else if (c.equals("player.setPos")) {
+//				String x = args[0], y = args[1], z = args[2];
+//				Player currentPlayer = getCurrentPlayer();
+//				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
+//				Location loc = currentPlayer.getLocation();
+//				currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+//
+//			// player.setDirection
+//			} else if (c.equals("player.setDirection")) {
+//				Double x = Double.parseDouble(args[0]);
+//				Double y = Double.parseDouble(args[1]);
+//				Double z = Double.parseDouble(args[2]);
+//				Player currentPlayer = getCurrentPlayer();
+//				Location loc = currentPlayer.getLocation();
+//				loc.setDirection(new Vector(x, y, z));
+//				currentPlayer.teleport(loc);
+//
+//			// player.getDirection
+//			} else if (c.equals("player.getDirection")) {
+//			Player currentPlayer = getCurrentPlayer();
+//			send(currentPlayer.getLocation().getDirection().toString());
+//
+//			// player.setRotation
+//			} else if (c.equals("player.setRotation")) {
+//				Float yaw = Float.parseFloat(args[0]);
+//				Player currentPlayer = getCurrentPlayer();
+//				Location loc = currentPlayer.getLocation();
+//				loc.setYaw(yaw);
+//				currentPlayer.teleport(loc);
+//
+//			// player.getRotation
+//			} else if (c.equals("player.getRotation")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				float yaw = currentPlayer.getLocation().getYaw();
+//				// turn bukkit's 0 - -360 to positive numbers
+//				if (yaw < 0) yaw = yaw * -1;
+//				send(yaw);
+//
+//			// player.setPitch
+//			} else if (c.equals("player.setPitch")) {
+//				Float pitch = Float.parseFloat(args[0]);
+//				Player currentPlayer = getCurrentPlayer();
+//				Location loc = currentPlayer.getLocation();
+//				loc.setPitch(pitch);
+//				currentPlayer.teleport(loc);
+//
+//			// player.getPitch
+//			} else if (c.equals("player.getPitch")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(currentPlayer.getLocation().getPitch());
+//
+//			// player.getEntities
+//			} else if (c.equals("player.getEntities")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				int distance = Integer.parseInt(args[0]);
+//				int entityTypeId = Integer.parseInt(args[1]);
+//
+//				send(getEntities(world, currentPlayer.getEntityId(), distance, entityTypeId));
+//
+//			// player.removeEntities
+//			} else if (c.equals("player.removeEntities")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				int distance = Integer.parseInt(args[0]);
+//				int entityType = Integer.parseInt(args[1]);
+//
+//				send(removeEntities(world, currentPlayer.getEntityId(), distance, entityType));
+//
+//			// player.events.block.hits
+//			} else if (c.equals("player.events.block.hits")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(getBlockHits(currentPlayer.getEntityId()));
+//
+//			// player.events.chat.posts
+//			} else if (c.equals("player.events.chat.posts")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(getChatPosts(currentPlayer.getEntityId()));
+//
+//			// player.events.projectile.hits
+//			} else if(c.equals("player.events.projectile.hits")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				send(getProjectileHits(currentPlayer.getEntityId()));
+//
+//			// player.events.clear
+//			} else if (c.equals("player.events.clear")) {
+//				Player currentPlayer = getCurrentPlayer();
+//				clearEntityEvents(currentPlayer.getEntityId());
+//
+//			// world.getHeight
+//			} else if (c.equals("world.getHeight")) {
+//				send(world.getHighestBlockYAt(parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
+//
+//			// entity.getTile
+//			} else if (c.equals("entity.getTile")) {
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					send(blockLocationToRelative(entity.getLocation()));
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.setTile
+//			} else if (c.equals("entity.setTile")) {
+//				String x = args[1], y = args[2], z = args[3];
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					//get entity's current location, so when they are moved we will use the same pitch and yaw (rotation)
+//					Location loc = entity.getLocation();
+//					entity.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.getPos
+//			} else if (c.equals("entity.getPos")) {
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				//Player entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					send(locationToRelative(entity.getLocation()));
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.setPos
+//			} else if (c.equals("entity.setPos")) {
+//				String x = args[1], y = args[2], z = args[3];
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					//get entity's current location, so when they are moved we will use the same pitch and yaw (rotation)
+//					Location loc = entity.getLocation();
+//					entity.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.setDirection
+//			} else if (c.equals("entity.setDirection")) {
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					Double x = Double.parseDouble(args[1]);
+//					Double y = Double.parseDouble(args[2]);
+//					Double z = Double.parseDouble(args[3]);
+//					Location loc = entity.getLocation();
+//					loc.setDirection(new Vector(x, y, z));
+//					entity.teleport(loc);
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//				}
+//
+//			// entity.getDirection
+//			} else if (c.equals("entity.getDirection")) {
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					send(entity.getLocation().getDirection().toString());
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.setRotation
+//			} else if (c.equals("entity.setRotation")) {
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					Float yaw = Float.parseFloat(args[1]);
+//					Location loc = entity.getLocation();
+//					loc.setYaw(yaw);
+//					entity.teleport(loc);
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//				}
+//
+//			// entity.getRotation
+//			} else if (c.equals("entity.getRotation")) {
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					send(entity.getLocation().getYaw());
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.setPitch
+//			} else if (c.equals("entity.setPitch")) {
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					Float pitch = Float.parseFloat(args[1]);
+//					Location loc = entity.getLocation();
+//					loc.setPitch(pitch);
+//					entity.teleport(loc);
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//				}
+//
+//			// entity.getPitch
+//			} else if (c.equals("entity.getPitch")) {
+//				//get entity based on id
+//				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+//				if (entity != null) {
+//					send(entity.getLocation().getPitch());
+//				} else {
+//					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
+//					send("Fail");
+//				}
+//
+//			// entity.getEntities
+//			} else if (c.equals("entity.getEntities")) {
+//				int entityId = Integer.parseInt(args[0]);
+//				int distance = Integer.parseInt(args[1]);
+//				int entityTypeId = Integer.parseInt(args[2]);
+//
+//				send(getEntities(world, entityId, distance, entityTypeId));
+//
+//			// entity.removeEntities
+//			} else if (c.equals("entity.removeEntities")) {
+//				int entityId = Integer.parseInt(args[0]);
+//				int distance = Integer.parseInt(args[1]);
+//				int entityType = Integer.parseInt(args[2]);
+//
+//				send(removeEntities(world, entityId, distance, entityType));
+//
+//			// world.setSign
+//			} else if (c.equals("world.setSign")) {
+//				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+//				Block thisBlock = world.getBlockAt(loc);
+//				//blockType should be 68 for wall sign or 63 for standing sign
+//				int blockType = Integer.parseInt(args[3]);
+//				//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
+//				//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
+//				byte blockData = Byte.parseByte(args[4]);
+//				if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
+//					thisBlock.setTypeIdAndData(blockType, blockData, true);
+//				}
+//				//plugin.getLogger().info("Creating sign at " + loc);
+//				if ( thisBlock.getState() instanceof Sign ) {
+//					Sign sign = (Sign) thisBlock.getState();
+//					for ( int i = 5; i-5 < 4 && i < args.length; i++) {
+//						sign.setLine(i-5, args[i]);
+//					}
+//					sign.update();
+//				}
+//
+//			// world.spawnEntity
+//			} else if (c.equals("world.spawnEntity")) {
+//				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+//				Entity entity = world.spawnEntity(loc, EntityType.fromId(Integer.parseInt(args[3])));
+//				send(entity.getEntityId());
+//
+//			// world.getEntityTypes
+//			} else if (c.equals("world.getEntityTypes")) {
+//				StringBuilder bdr = new StringBuilder();
+//				for (EntityType entityType : EntityType.values()) {
+//					if ( entityType.isSpawnable() && entityType.getTypeId() >= 0 ) {
+//						bdr.append(entityType.getTypeId());
+//						bdr.append(",");
+//						bdr.append(entityType.toString());
+//						bdr.append("|");
+//					}
+//				}
+//				send(bdr.toString());
+//
+//			// not a command which is supported
+//			} else {
+//				plugin.getLogger().warning(c + " is not supported.");
+//				send("Fail");
 			}
 		} catch (Exception e) {
 			
@@ -636,8 +664,9 @@ public class RemoteSession {
 		}
 	}
 
-	// create a cuboid of lots of blocks 
-	private void setCuboid(Location pos1, Location pos2, int blockType, byte data) {
+	// create a cuboid of lots of blocks
+	// TODO fix
+	private void setCuboid(Location pos1, Location pos2, Material blockType, BlockData data) {
 		int minX, maxX, minY, maxY, minZ, maxZ;
 		World world = pos1.getWorld();
 		minX = pos1.getBlockX() < pos2.getBlockX() ? pos1.getBlockX() : pos2.getBlockX();
@@ -672,7 +701,7 @@ public class RemoteSession {
 		for (int y = minY; y <= maxY; ++y) {
 			 for (int x = minX; x <= maxX; ++x) {
 				 for (int z = minZ; z <= maxZ; ++z) {
-					blockData.append(world.getBlockAt(x,y,z).getType().toString() + ",");
+					blockData.append(world.getBlockAt(x,y,z).getType().name() + ",");
 				}
 			}
 		}
@@ -681,20 +710,27 @@ public class RemoteSession {
 	}
 
 	// updates a block
-	private void updateBlock(World world, Location loc, int blockType, byte blockData) {
+	// TODO 1.21.5 blockId -> Material. (bytes) data -> BlockData
+	private void updateBlock(World world, Location loc, Material blockType, BlockData blockData) {
 		Block thisBlock = world.getBlockAt(loc);
 		updateBlock(thisBlock, blockType, blockData);
 	}
 	
-	private void updateBlock(World world, int x, int y, int z, int blockType, byte blockData) {
+	private void updateBlock(World world, int x, int y, int z, Material blockType, BlockData blockData) {
 		Block thisBlock = world.getBlockAt(x,y,z);
 		updateBlock(thisBlock, blockType, blockData);
 	}
-	
-	private void updateBlock(Block thisBlock, int blockType, byte blockData) {
-		// check to see if the block is different - otherwise leave it 
-		if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-			thisBlock.setTypeIdAndData(blockType, blockData, true);
+
+	private void updateBlock(Block thisBlock, Material blockType, BlockData blockData) {
+		// check to see if the block is different - otherwise leave it
+		if (blockData == null) {
+			blockData = blockType.createBlockData();
+		}
+		if (!thisBlock.getBlockData().equals(blockData)) {
+			thisBlock.setBlockData(blockData);
+		}
+		else if (thisBlock.getType() != blockType) {
+			thisBlock.setType(blockType);
 		}
 	}
 	
@@ -1001,12 +1037,12 @@ public class RemoteSession {
 			while (running) {
 				try {
 					String newLine = in.readLine();
-					//System.out.println(newLine);
+//					System.out.println(newLine);
 					if (newLine == null) {
 						running = false;
 					} else {
 						inQueue.add(newLine);
-						//System.out.println("Added to in queue");
+//						System.out.println("Added to in queue");
 					}
 				} catch (Exception e) {
 					// if its running raise an error

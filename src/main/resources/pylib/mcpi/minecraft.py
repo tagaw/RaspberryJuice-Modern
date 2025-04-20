@@ -289,7 +289,7 @@ class Minecraft:
     def getBlockWithData(self, *args):
         """Get block with data (x,y,z) => Block"""
         ans = self.conn.sendReceive(b"world.getBlockWithData", intFloor(args))
-        return Block(*list(map(int, ans.split(","))))
+        return ans.split("~")
 
     def getBlocks(self, *args):
         """Get a cuboid of blocks (x0,y0,z0,x1,y1,z1) => [id:int]"""
@@ -298,7 +298,9 @@ class Minecraft:
 
     def setBlock(self, *args):
         """Set block (x,y,z,id,[data])"""
-        self.conn.send(b"world.setBlock", intFloor(args))
+        block = args[3]
+        data = args[4] if len(args) > 4 else '[]'
+        self.conn.send(b"world.setBlock", intFloor(args[0:3]),block,data)
 
     def setBlocks(self, *args):
         """Set a cuboid of blocks (x0,y0,z0,x1,y1,z1,id,[data])"""
