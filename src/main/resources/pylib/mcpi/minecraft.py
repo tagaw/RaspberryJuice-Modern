@@ -1,3 +1,5 @@
+from argparse import ArgumentError
+
 from .connection import Connection
 from .vec3 import Vec3
 from .event import BlockEvent, ChatEvent, ProjectileEvent
@@ -31,6 +33,8 @@ from .util import flatten
 - removeEntity()
 - removeEntityType()
 """
+
+# TODO: Typehint all parameters in classes
 
 def intFloor(*args):
     return [int(math.floor(x)) for x in flatten(args)]
@@ -272,6 +276,7 @@ class CmdEvents:
                 info[5]))
         return results
 
+# TODO: Typehint *args for all variable length argument functions
 class Minecraft:
     """The main class to interact with a running instance of Minecraft Pi."""
     def __init__(self, connection):
@@ -282,29 +287,109 @@ class Minecraft:
         self.player = CmdPlayer(connection)
         self.events = CmdEvents(connection)
 
-    def getBlock(self, *args):
-        """Get block (x,y,z) => id:int"""
-        return int(self.conn.sendReceive(b"world.getBlock", intFloor(args)))
+    def getBlock(self, *args: tuple[int,int,int] | Vec3) -> str:
+        """
+        Retrieves the block located at a position in the world.
 
-    def getBlockWithData(self, *args):
-        """Get block with data (x,y,z) => Block"""
-        ans = self.conn.sendReceive(b"world.getBlockWithData", intFloor(args))
-        return ans.split("~")
+        :param args: Coordinates (x,y,z) or single Vec3 positional vector
+        :return: block_type
+        """
+        return str(self.conn.sendReceive(b"world.getBlock", intFloor(args)))
 
-    def getBlocks(self, *args):
+    def getBlockWithData(self, *args: tuple[int,int,int] | Vec3) -> tuple[str,str]:
+        """
+        Retrieves the block and its associated data located at a position in the world.
+        Data will be blank ('[]') if there is no associated data.
+
+        :param args: Coordinates (x,y,z) or single Vec3 positional vector
+        :return: Retrieved Block Name, Block Data
+        """
+        block,data = self.conn.sendReceive(b"world.getBlockWithData", intFloor(*args)).split("~")
+
+        data = data[data.find('['):]
+        tag_start = data.find('[')
+        if tag_start < 0:
+            data = '[]'
+        else:
+            data = data[tag_start:]
+
+        return block,data
+
+    # TODO: Map JAVA getBlocks Material types to MCPI equivalent
+    def getBlocks(self, *args: tuple[int,int,int] | Vec3):
         """Get a cuboid of blocks (x0,y0,z0,x1,y1,z1) => [id:int]"""
         s = self.conn.sendReceive(b"world.getBlocks", intFloor(args))
+        # TODO old int blockID, need modern representation
         return map(int, s.split(","))
 
-    def setBlock(self, *args):
-        """Set block (x,y,z,id,[data])"""
-        block = args[3]
-        data = args[4] if len(args) > 4 else '[]'
-        self.conn.send(b"world.setBlock", intFloor(args[0:3]),block,data)
+    def setBlock(self, block:str, *args: tuple[int,int,int] | Vec3, data='[]') -> str:
+        """
+        Sets the position in a world to specified block with data if given.
 
-    def setBlocks(self, *args):
-        """Set a cuboid of blocks (x0,y0,z0,x1,y1,z1,id,[data])"""
-        self.conn.send(b"world.setBlocks", intFloor(args))
+        Data takes the form '[tag1={true/false},tag2={true/false},...]'
+
+        Invalid data tags will fail silently and block will have unknown defaults.
+
+        Will raise an error if specified block is invalid.
+
+        :param block: Name of block to set at location
+        :param args: Coordinates (x,y,z) or single Vec3 positional vector
+        :param data: String for block data tag
+        :raises TypeError: Invalid block specified
+        :raises ArgumentError: Invalid coordinate values
+
+        :return: Block set at location
+        """
+        passed_args = [*args]
+
+        if len(passed_args) != 3:
+            raise ValueError(f"Expected 3 coordinate values, got {len(passed_args)}: {passed_args}")
+
+        passed_args.append(block)
+
+        if data != '[]':
+            passed_args.append(data)
+
+        return_block,success = self.conn.sendReceive(b"world.setBlock",passed_args).split('~')
+
+        if success != 'true':
+            raise TypeError(f"Unknown block type: {block}!")
+
+        return return_block
+
+    def setBlocks(self,block:str, *args: tuple[int,int,int,int,int,int] | tuple[Vec3,Vec3], data='[]') -> str:
+        """
+        Sets a cuboid defined by two points to specified block with data if given.
+
+        Data takes the form '[tag1={true/false},tag2={true/false},...]'
+
+        Invalid data tags will fail silently and block will have unknown defaults.
+
+        Will raise an error if specified block is invalid.
+
+        :param block: Name of block to fill cuboid
+        :param args: 2 coordinates (x0,y0,z0),(x1,y1,z1) or 2 Vec3 positional vectors (pos0,pos1)
+        :param data: String for block data tag
+        :raises TypeError: Invalid block specified
+        :raises ArgumentError: Invalid coordinate values
+
+        :return: Blocks set at location
+        """
+        passed_args = [*args]
+        if len(passed_args) != 6:
+            raise ValueError(f"Expected 6 coordinate values, got {len(passed_args)}: {passed_args}")
+
+        passed_args.append(block)
+
+        if data != '[]':
+            passed_args.append(data)
+
+        return_block,success = self.conn.sendReceive(b"world.setBlocks",passed_args).split('~')
+
+        if success != 'true':
+            raise TypeError(f"Unknown block type: {block}!")
+
+        return return_block
 
     def setSign(self, *args):
         """Set a sign (x,y,z,id,data,[line1,line2,line3,line4])
