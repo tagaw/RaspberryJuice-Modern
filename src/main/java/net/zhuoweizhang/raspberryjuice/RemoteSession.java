@@ -199,36 +199,84 @@ public class RemoteSession {
 			} else if (c.equals("world.setBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Material blockType = Material.matchMaterial(args[3]);
+
+				boolean success = true;
+
 				if (blockType == null) {
-					plugin.getLogger().warning("Unknown block type: " + args[3]);
-					blockType = Material.STONE;
-				}
-				BlockData blockData;
-				if (args.length > 4) {
-					// Try to create block data from data string.
-					// Fails and defaults to unknown defaults if invalid data for given block
-					try {
-						blockData = Bukkit.createBlockData(blockType,args[4]);
+					// try legacy name if material is mistaken
+					blockType = Material.matchMaterial(args[3], true);
 
-					} catch (IllegalArgumentException e) {
-						plugin.getLogger().warning("Data tag incompatible with target block: " + blockType.name() + " with data tag " + args[4]);
-
-						blockData = Bukkit.createBlockData(blockType);
+					if (blockType == null) {
+						plugin.getLogger().warning("Unknown block type: " + args[3]);
+						success = false;
+						blockType = Material.STONE; // random block so we aren't sending client null on error
 					}
 				}
-				else {
-					blockData = Bukkit.createBlockData(blockType);
+
+				if (success) { // skips updating block if block is invalid
+					BlockData blockData;
+					if (args.length > 4) {
+						// Try to create block data from data string.
+						// Fails and defaults to unknown defaults if invalid data for given block
+						try {
+							blockData = Bukkit.createBlockData(blockType, args[4]);
+
+						} catch (IllegalArgumentException e) {
+							plugin.getLogger().warning("Data tag incompatible with target block: " + blockType.name() + " with data tag " + args[4]);
+
+							blockData = Bukkit.createBlockData(blockType);
+						}
+					} else {
+						blockData = Bukkit.createBlockData(blockType);
+					}
+					updateBlock(world, loc, blockType, blockData);
 				}
-				updateBlock(world, loc, blockType, blockData);
-//
-//			// world.setBlocks
-//			} else if (c.equals("world.setBlocks")) {
-//				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
-//				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
-//				int blockType = Integer.parseInt(args[6]);
-//				byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
-//				setCuboid(loc1, loc2, blockType, data);
-//
+
+				// sends mcpi client request status and parsed block type.
+				send(blockType.name() + '~' + success);
+			}
+
+			// world.setBlocks
+			else if (c.equals("world.setBlocks")) {
+				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
+				Material blockType = Material.matchMaterial(args[6]);
+
+				boolean success = true;
+
+				if (blockType == null) {
+					// try legacy name if material is mistaken
+					blockType = Material.matchMaterial(args[6], true);
+
+					if (blockType == null) {
+						plugin.getLogger().warning("Unknown block type: " + args[6]);
+						success = false;
+						blockType = Material.STONE; // random block so we aren't sending client null on error
+					}
+				}
+
+				if (success) { // skips updating block if block is invalid
+					BlockData blockData;
+					if (args.length > 7) {
+						// Try to create block data from data string.
+						// Fails and defaults to unknown defaults if invalid data for given block
+						try {
+							blockData = Bukkit.createBlockData(blockType, args[7]);
+
+						} catch (IllegalArgumentException e) {
+							plugin.getLogger().warning("Data tag incompatible with target block: " + blockType.name() + " with data tag " + args[7]);
+
+							blockData = Bukkit.createBlockData(blockType);
+						}
+					} else {
+						blockData = Bukkit.createBlockData(blockType);
+					}
+					setCuboid(loc1, loc2, blockType, blockData);
+				}
+
+				// sends mcpi client request status and parsed block type.
+				send(blockType.name() + '~' + success);
+			}
 //			// world.getPlayerIds
 //			} else if (c.equals("world.getPlayerIds")) {
 //				StringBuilder bdr = new StringBuilder();
@@ -654,7 +702,7 @@ public class RemoteSession {
 //			} else {
 //				plugin.getLogger().warning(c + " is not supported.");
 //				send("Fail");
-			}
+//			}
 		} catch (Exception e) {
 			
 			plugin.getLogger().warning("Error occured handling command");
@@ -665,7 +713,6 @@ public class RemoteSession {
 	}
 
 	// create a cuboid of lots of blocks
-	// TODO fix
 	private void setCuboid(Location pos1, Location pos2, Material blockType, BlockData data) {
 		int minX, maxX, minY, maxY, minZ, maxZ;
 		World world = pos1.getWorld();
@@ -701,7 +748,7 @@ public class RemoteSession {
 		for (int y = minY; y <= maxY; ++y) {
 			 for (int x = minX; x <= maxX; ++x) {
 				 for (int z = minZ; z <= maxZ; ++z) {
-					blockData.append(world.getBlockAt(x,y,z).getType().name() + ",");
+					blockData.append(world.getBlockAt(x,y,z).getType().name() + "~");
 				}
 			}
 		}
@@ -723,6 +770,7 @@ public class RemoteSession {
 
 	private void updateBlock(Block thisBlock, Material blockType, BlockData blockData) {
 		// check to see if the block is different - otherwise leave it
+		// sends the updated type
 		if (blockData == null) {
 			blockData = blockType.createBlockData();
 		}
